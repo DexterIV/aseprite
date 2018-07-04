@@ -206,6 +206,13 @@ void PreviewEditorWindow::setPreviewEnabled(bool state)
   updateUsingEditor(current_editor);
 }
 
+void PreviewEditorWindow::pressPlayButton()
+{
+  m_playButton->setSelected(
+    !m_playButton->isSelected());
+  onPlayClicked();
+}
+
 bool PreviewEditorWindow::onProcessMessage(ui::Message* msg)
 {
   switch (msg->type()) {
@@ -304,8 +311,11 @@ void PreviewEditorWindow::onPlayClicked()
     miniEditor->play(Preferences::instance().preview.playOnce(),
                      Preferences::instance().preview.playAll());
   }
-  else
+  else {
     miniEditor->stop();
+    if (m_relatedEditor)
+      miniEditor->setFrame(m_relatedEditor->frame());
+  }
 }
 
 void PreviewEditorWindow::onPopupSpeed()

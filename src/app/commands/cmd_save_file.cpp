@@ -20,6 +20,7 @@
 #include "app/document_undo.h"
 #include "app/file/file.h"
 #include "app/file/gif_format.h"
+#include "app/file/png_format.h"
 #include "app/file_selector.h"
 #include "app/i18n/strings.h"
 #include "app/job.h"
@@ -373,6 +374,7 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
 
   // Apply scale
   const undo::UndoState* undoState = nullptr;
+  bool undoResize = false;
   if (xscale != 1.0 || yscale != 1.0) {
     Command* resizeCmd = Commands::instance()->byId(CommandId::SpriteSize());
     ASSERT(resizeCmd);
@@ -386,6 +388,7 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
       if (width != newWidth || height != newHeight) {
         doc->setInhibitBackup(true);
         undoState = doc->undoHistory()->currentState();
+        undoResize = true;
 
         Params params;
         params.set("use-ui", "false");
@@ -422,14 +425,16 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
       convert_anidir_to_string(aniDirValue), // New value
       m_aniDir);                             // Restore old value
 
-    GifEncoderDurationFix fix(isForTwitter);
+    // TODO This should be set as options for the specific encoder
+    GifEncoderDurationFix fixGif(isForTwitter);
+    PngEncoderOneAlphaPixel fixPng(isForTwitter);
 
     saveDocumentInBackground(
       context, doc, outputFilename, false);
   }
 
   // Undo resize
-  if (undoState &&
+  if (undoResize &&
       undoState != doc->undoHistory()->currentState()) {
     moveToUndoState(doc, undoState);
     doc->setInhibitBackup(false);

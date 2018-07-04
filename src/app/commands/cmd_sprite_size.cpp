@@ -33,7 +33,7 @@
 
 #include "sprite_size.xml.h"
 
-#define PERC_FORMAT     "%.1f"
+#define PERC_FORMAT     "%.4g"
 
 namespace app {
 
@@ -353,6 +353,9 @@ void SpriteSizeCommand::onExecute(Context* context)
     set_config_int("SpriteSize", "Method", resize_method);
   }
 #endif // ENABLE_UI
+
+  new_width = MID(1, new_width, DOC_SPRITE_MAX_WIDTH);
+  new_height = MID(1, new_height, DOC_SPRITE_MAX_HEIGHT);
 
   {
     SpriteSizeJob job(reader, new_width, new_height, resize_method);
