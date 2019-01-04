@@ -43,7 +43,7 @@ void EditorRender::setProjection(const render::Projection& projection)
   m_render->setProjection(projection);
 }
 
-void EditorRender::setupBackground(app::Document* doc, doc::PixelFormat pixelFormat)
+void EditorRender::setupBackground(Doc* doc, doc::PixelFormat pixelFormat)
 {
   DocumentPreferences& docPref = Preferences::instance().document(doc);
   render::BgType bgType;
@@ -69,6 +69,10 @@ void EditorRender::setupBackground(app::Document* doc, doc::PixelFormat pixelFor
     case app::gen::BgType::CHECKED_1x1:
       bgType = render::BgType::CHECKED;
       tile = gfx::Size(1, 1);
+      break;
+    case app::gen::BgType::CHECKED_CUSTOM:
+      bgType = render::BgType::CHECKED;
+      tile = docPref.bg.size();
       break;
     default:
       bgType = render::BgType::TRANSPARENT;

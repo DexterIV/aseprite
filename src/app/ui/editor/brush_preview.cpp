@@ -13,7 +13,8 @@
 #include "app/app.h"
 #include "app/color.h"
 #include "app/color_utils.h"
-#include "app/document.h"
+#include "app/doc.h"
+#include "app/site.h"
 #include "app/tools/controller.h"
 #include "app/tools/ink.h"
 #include "app/tools/intertwine.h"
@@ -32,9 +33,8 @@
 #include "doc/image_impl.h"
 #include "doc/layer.h"
 #include "doc/primitives.h"
-#include "doc/site.h"
 #include "render/render.h"
-#include "she/display.h"
+#include "os/display.h"
 #include "ui/manager.h"
 #include "ui/system.h"
 
@@ -91,7 +91,7 @@ void BrushPreview::show(const gfx::Point& screenPos)
   if (m_onScreen)
     hide();
 
-  app::Document* document = m_editor->document();
+  Doc* document = m_editor->document();
   Sprite* sprite = m_editor->sprite();
   Layer* layer = (m_editor->layer() &&
                   m_editor->layer()->isImage() ? m_editor->layer():
@@ -240,17 +240,17 @@ void BrushPreview::show(const gfx::Point& screenPos)
     }
 
     {
-      base::UniquePtr<tools::ToolLoop> loop(
+      std::unique_ptr<tools::ToolLoop> loop(
         create_tool_loop_preview(
           m_editor, extraImage,
           extraCelBounds.origin()));
       if (loop) {
-        loop->getInk()->prepareInk(loop);
-        loop->getController()->prepareController(loop);
+        loop->getInk()->prepareInk(loop.get());
+        loop->getController()->prepareController(loop.get());
         loop->getIntertwine()->prepareIntertwine();
-        loop->getPointShape()->preparePointShape(loop);
+        loop->getPointShape()->preparePointShape(loop.get());
         loop->getPointShape()->transformPoint(
-          loop,
+          loop.get(),
           brushBounds.x-origBrushBounds.x,
           brushBounds.y-origBrushBounds.y);
       }
@@ -312,7 +312,7 @@ void BrushPreview::hide()
 
   // Clean pixel/brush preview
   if (m_withRealPreview) {
-    app::Document* document = m_editor->document();
+    Doc* document = m_editor->document();
     doc::Sprite* sprite = m_editor->sprite();
 
     ASSERT(document);
@@ -334,7 +334,7 @@ void BrushPreview::hide()
 
 void BrushPreview::discardBrushPreview()
 {
-  app::Document* document = m_editor->document();
+  Doc* document = m_editor->document();
   ASSERT(document);
 
   if (document && m_onScreen && m_withRealPreview) {

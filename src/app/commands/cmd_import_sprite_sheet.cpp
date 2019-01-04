@@ -14,14 +14,14 @@
 #include "app/commands/params.h"
 #include "app/context.h"
 #include "app/context_access.h"
-#include "app/document_access.h"
-#include "app/document_api.h"
+#include "app/doc_access.h"
+#include "app/doc_api.h"
 #include "app/i18n/strings.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
 #include "app/pref/preferences.h"
-#include "app/transaction.h"
+#include "app/tx.h"
 #include "app/ui/drop_down_button.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/editor/editor_decorator.h"
@@ -101,7 +101,7 @@ public:
     return closer() == import();
   }
 
-  Document* document() const {
+  Doc* document() const {
     return m_document;
   }
 
@@ -120,12 +120,11 @@ protected:
   }
 
   void onSelectFile() {
-    Document* oldActiveDocument = m_context->activeDocument();
+    Doc* oldActiveDocument = m_context->activeDocument();
     Command* openFile = Commands::instance()->byId(CommandId::OpenFile());
     Params params;
     params.set("filename", "");
-    openFile->loadParams(params);
-    openFile->execute(m_context);
+    m_context->executeCommand(openFile, params);
 
     // The user have selected another document.
     if (oldActiveDocument != m_context->activeDocument()) {
@@ -191,7 +190,7 @@ protected:
 
 private:
   void selectActiveDocument() {
-    Document* oldDocument = m_document;
+    Doc* oldDocument = m_document;
     m_document = m_context->activeDocument();
 
     // If the user already have selected a file, we have to destroy
@@ -200,7 +199,7 @@ private:
       releaseEditor();
 
       if (m_fileOpened) {
-        DocumentDestroyer destroyer(m_context, oldDocument, 100);
+        DocDestroyer destroyer(m_context, oldDocument, 100);
         destroyer.destroyDocument();
       }
     }
@@ -276,7 +275,7 @@ private:
   }
 
   Context* m_context;
-  Document* m_document;
+  Doc* m_document;
   Editor* m_editor;
   EditorStatePtr m_editorState;
   gfx::Rect m_rect;
@@ -310,7 +309,7 @@ void ImportSpriteSheetCommand::onExecute(Context* context)
   if (!window.ok())
     return;
 
-  Document* document = window.document();
+  Doc* document = window.document();
   DocumentPreferences* docPref = window.docPref();
   gfx::Rect frameBounds = window.frameBounds();
   bool partialTiles = window.partialTilesValue();
@@ -386,8 +385,8 @@ void ImportSpriteSheetCommand::onExecute(Context* context)
     // The following steps modify the sprite, so we wrap all
     // operations in a undo-transaction.
     ContextWriter writer(context);
-    Transaction transaction(writer.context(), "Import Sprite Sheet", ModifyDocument);
-    DocumentApi api = document->getApi(transaction);
+    Tx tx(writer.context(), "Import Sprite Sheet", ModifyDocument);
+    DocApi api = document->getApi(tx);
 
     // Add the layer in the sprite.
     LayerImage* resultLayer = api.newLayer(sprite->root(), "Sprite Sheet");
@@ -395,10 +394,10 @@ void ImportSpriteSheetCommand::onExecute(Context* context)
     // Add all frames+cels to the new layer
     for (size_t i=0; i<animation.size(); ++i) {
       // Create the cel.
-      base::UniquePtr<Cel> resultCel(new Cel(frame_t(i), animation[i]));
+      std::unique_ptr<Cel> resultCel(new Cel(frame_t(i), animation[i]));
 
       // Add the cel in the layer.
-      api.addCel(resultLayer, resultCel);
+      api.addCel(resultLayer, resultCel.get());
       resultCel.release();
     }
 
@@ -417,7 +416,7 @@ void ImportSpriteSheetCommand::onExecute(Context* context)
     // Set the size of the sprite to the tile size.
     api.setSpriteSize(sprite, frameBounds.w, frameBounds.h);
 
-    transaction.commit();
+    tx.commit();
 
     ASSERT(docPref);
     if (docPref) {

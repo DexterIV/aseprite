@@ -12,8 +12,8 @@
 #include "app/commands/command.h"
 #include "app/context.h"
 #include "app/context_access.h"
-#include "app/document.h"
-#include "app/document_exporter.h"
+#include "app/doc.h"
+#include "app/doc_exporter.h"
 #include "app/file/file.h"
 #include "app/file_selector.h"
 #include "app/i18n/strings.h"
@@ -329,11 +329,11 @@ public:
       return std::string();
   }
 
-  DocumentExporter::DataFormat dataFormatValue() const {
+  DocExporter::DataFormat dataFormatValue() const {
     if (dataEnabled()->isSelected())
-      return DocumentExporter::DataFormat(dataFormat()->getSelectedItemIndex());
+      return DocExporter::DataFormat(dataFormat()->getSelectedItemIndex());
     else
-      return DocumentExporter::DefaultDataFormat;
+      return DocExporter::DefaultDataFormat;
   }
 
   int borderPaddingValue() const {
@@ -626,7 +626,7 @@ bool ExportSpriteSheetCommand::onEnabled(Context* context)
 void ExportSpriteSheetCommand::onExecute(Context* context)
 {
   Site site = context->activeSite();
-  Document* document = static_cast<Document*>(site.document());
+  Doc* document = site.document();
   Sprite* sprite = site.sprite();
   DocumentPreferences& docPref(Preferences::instance().document(document));
   bool askOverwrite = m_askOverwrite;
@@ -679,7 +679,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   bool bestFit = docPref.spriteSheet.bestFit();
   std::string filename = docPref.spriteSheet.textureFilename();
   std::string dataFilename = docPref.spriteSheet.dataFilename();
-  DocumentExporter::DataFormat dataFormat = docPref.spriteSheet.dataFormat();
+  DocExporter::DataFormat dataFormat = docPref.spriteSheet.dataFormat();
   std::string layerName = docPref.spriteSheet.layer();
   std::string frameTagName = docPref.spriteSheet.frameTag();
   int borderPadding = docPref.spriteSheet.borderPadding();
@@ -756,7 +756,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   if (sheet_w == 0) sheet_w = fit.width;
   if (sheet_h == 0) sheet_h = fit.height;
 
-  DocumentExporter exporter;
+  DocExporter exporter;
   if (!filename.empty())
     exporter.setTextureFilename(filename);
   if (!dataFilename.empty()) {
@@ -777,7 +777,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
                        (!selLayers.empty() ? &selLayers: nullptr),
                        (!selFrames.empty() ? &selFrames: nullptr));
 
-  base::UniquePtr<Document> newDocument(exporter.exportSheet(context));
+  std::unique_ptr<Doc> newDocument(exporter.exportSheet(context));
   if (!newDocument)
     return;
 
@@ -787,11 +787,12 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
 
   // Copy background and grid preferences
   {
-    DocumentPreferences& newDocPref(Preferences::instance().document(newDocument));
+    DocumentPreferences& newDocPref(
+      Preferences::instance().document(newDocument.get()));
     newDocPref.bg = docPref.bg;
     newDocPref.grid = docPref.grid;
     newDocPref.pixelGrid = docPref.pixelGrid;
-    Preferences::instance().removeDocument(newDocument);
+    Preferences::instance().removeDocument(newDocument.get());
   }
 
   if (docPref.spriteSheet.openGenerated()) {

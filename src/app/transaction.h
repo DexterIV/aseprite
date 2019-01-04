@@ -15,8 +15,8 @@ namespace app {
   class Cmd;
   class CmdTransaction;
   class Context;
-  class DocumentRange;
-  class DocumentUndo;
+  class DocRange;
+  class DocUndo;
 
   enum Modification {
     ModifyDocument,      // This item changes the "saved status" of the document.
@@ -49,7 +49,7 @@ namespace app {
     // Can be used to change the new document range resulting from
     // executing this transaction. This range can be used then in
     // undo/redo operations to restore the Timeline selection/range.
-    void setNewDocumentRange(const DocumentRange& range);
+    void setNewDocRange(const DocRange& range);
 
     // This must be called to commit all the changes, so the undo will
     // be finally added in the sprite.
@@ -59,8 +59,8 @@ namespace app {
     // created).
     //
     // WARNING: This must be called from the main UI thread, because
-    // it will generate a DocumentUndo::add() which triggers a
-    // DocumentUndoObserver::onAddUndoState() notification, which
+    // it will generate a DocUndo::add() which triggers a
+    // DocUndoObserver::onAddUndoState() notification, which
     // updates the Undo History window UI.
     void commit();
 
@@ -70,7 +70,7 @@ namespace app {
     void rollback();
 
     Context* m_ctx;
-    DocumentUndo* m_undo;
+    DocUndo* m_undo;
     CmdTransaction* m_cmds;
   };
 

@@ -1,4 +1,5 @@
 // Aseprite
+// Copyright (C) 2018  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
@@ -8,7 +9,7 @@
 #include "config.h"
 #endif
 
-#include "app/document.h"
+#include "app/doc.h"
 #include "app/file/file.h"
 #include "app/file/file_format.h"
 #include "app/file/format_options.h"
@@ -83,7 +84,7 @@ bool FliFormat::onLoad(FileOp* fop)
   Cel* prevCel = nullptr;
 
   // Create the sprite
-  Sprite* sprite = new Sprite(IMAGE_INDEXED, w, h, 256);
+  Sprite* sprite = new Sprite(ImageSpec(ColorMode::INDEXED, w, h), 256);
   LayerImage* layer = new LayerImage(sprite);
   sprite->root()->addLayer(layer);
   layer->configureAsBackground();

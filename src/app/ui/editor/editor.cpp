@@ -1,4 +1,5 @@
 // Aseprite
+// Copyright (c) 2018  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
@@ -18,6 +19,7 @@
 #include "app/commands/params.h"
 #include "app/commands/quick_command.h"
 #include "app/console.h"
+#include "app/doc_event.h"
 #include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/modules/editors.h"
@@ -51,14 +53,14 @@
 #include "base/bind.h"
 #include "base/chrono.h"
 #include "base/convert_to.h"
-#include "base/unique_ptr.h"
-#include "doc/conversion_she.h"
+#include "doc/conversion_to_surface.h"
 #include "doc/doc.h"
-#include "doc/document_event.h"
 #include "doc/mask_boundaries.h"
 #include "doc/slice.h"
-#include "she/surface.h"
-#include "she/system.h"
+#include "os/color_space.h"
+#include "os/display.h"
+#include "os/surface.h"
+#include "os/system.h"
 #include "ui/ui.h"
 
 #include <algorithm>
@@ -129,7 +131,7 @@ private:
 // static
 EditorRender* Editor::m_renderEngine = nullptr;
 
-Editor::Editor(Document* document, EditorFlags flags)
+Editor::Editor(Doc* document, EditorFlags flags)
   : Widget(editor_type())
   , m_state(new StandbyState())
   , m_decorator(NULL)
@@ -575,7 +577,7 @@ void Editor::drawOneSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& sprite
     dest.h = rc.h;
   }
 
-  base::UniquePtr<Image> rendered(nullptr);
+  std::unique_ptr<Image> rendered(nullptr);
   try {
     // Generate a "expose sprite pixels" notification. This is used by
     // tool managers that need to validate this region (copy pixels from
@@ -633,7 +635,7 @@ void Editor::drawOneSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& sprite
     }
 
     m_renderEngine->renderSprite(
-      rendered, m_sprite, m_frame, gfx::Clip(0, 0, rc2));
+      rendered.get(), m_sprite, m_frame, gfx::Clip(0, 0, rc2));
 
     m_renderEngine->removeExtraImage();
   }
@@ -642,23 +644,31 @@ void Editor::drawOneSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& sprite
   }
 
   if (rendered) {
-    // Convert the render to a she::Surface
-    static she::Surface* tmp = nullptr; // TODO move this to other centralized place
-    if (!tmp || tmp->width() < rc2.w || tmp->height() < rc2.h) {
+    // Convert the render to a os::Surface
+    static os::Surface* tmp = nullptr; // TODO move this to other centralized place
+
+    if (!tmp ||
+        tmp->width() < rc2.w ||
+        tmp->height() < rc2.h ||
+        tmp->colorSpace() != m_document->osColorSpace()) {
       const int maxw = std::max(rc2.w, tmp ? tmp->width(): 0);
       const int maxh = std::max(rc2.h, tmp ? tmp->height(): 0);
       if (tmp)
         tmp->dispose();
-      tmp = she::instance()->createSurface(maxw, maxh);
+
+      tmp = os::instance()->createSurface(
+        maxw, maxh, m_document->osColorSpace());
     }
+
     if (tmp->nativeHandle()) {
       if (newEngine)
         tmp->clear(); // TODO why we need this?
 
-      convert_image_to_surface(rendered, m_sprite->palette(m_frame),
+      convert_image_to_surface(rendered.get(), m_sprite->palette(m_frame),
                                tmp, 0, 0, 0, 0, rc2.w, rc2.h);
+
       if (newEngine) {
-        g->drawRgbaSurface(tmp, gfx::Rect(0, 0, rc2.w, rc2.h), dest);
+        g->drawSurface(tmp, gfx::Rect(0, 0, rc2.w, rc2.h), dest);
       }
       else {
         g->blit(tmp, 0, 0, dest.x, dest.y, dest.w, dest.h);
@@ -1273,10 +1283,8 @@ gfx::Point Editor::autoScroll(MouseMessage* msg, AutoScroll dir)
     }
     setEditorScroll(scroll);
 
-#if defined(_WIN32) || defined(__APPLE__)
     mousePos -= delta;
     ui::set_mouse_position(mousePos);
-#endif
 
     m_oldPos = mousePos;
     mousePos = gfx::Point(
@@ -1303,9 +1311,13 @@ tools::Ink* Editor::getCurrentEditorInk()
     return App::instance()->activeToolManager()->activeInk();
 }
 
-bool Editor::isAutoSelectLayer() const
+bool Editor::isAutoSelectLayer()
 {
-  return App::instance()->contextBar()->isAutoSelectLayer();
+  tools::Ink* ink = getCurrentEditorInk();
+  if (ink && ink->isAutoSelectLayer())
+    return true;
+  else
+    return App::instance()->contextBar()->isAutoSelectLayer();
 }
 
 gfx::Point Editor::screenToEditor(const gfx::Point& pt)
@@ -1484,7 +1496,8 @@ void Editor::updateToolLoopModifiersIndicators()
       modifiers |= (int(m_toolLoopModifiers) &
                     (int(tools::ToolLoopModifiers::kReplaceSelection) |
                      int(tools::ToolLoopModifiers::kAddSelection) |
-                     int(tools::ToolLoopModifiers::kSubtractSelection)));
+                     int(tools::ToolLoopModifiers::kSubtractSelection) |
+                     int(tools::ToolLoopModifiers::kIntersectSelection)));
 
       tools::Controller* controller =
         (App::instance()->activeToolManager()->selectedTool() ?
@@ -1523,13 +1536,17 @@ void Editor::updateToolLoopModifiersIndicators()
            App::instance()->activeToolManager()->selectedTool()->getInk(0)->isSelection())) {
         mode = gen::SelectionMode::SUBTRACT;
       }
+      else if (int(action & KeyAction::IntersectSelection)) {
+        mode = gen::SelectionMode::INTERSECT;
+      }
       else if (int(action & KeyAction::AddSelection)) {
         mode = gen::SelectionMode::ADD;
       }
       switch (mode) {
-        case gen::SelectionMode::DEFAULT:  modifiers |= int(tools::ToolLoopModifiers::kReplaceSelection);  break;
-        case gen::SelectionMode::ADD:      modifiers |= int(tools::ToolLoopModifiers::kAddSelection);      break;
-        case gen::SelectionMode::SUBTRACT: modifiers |= int(tools::ToolLoopModifiers::kSubtractSelection); break;
+        case gen::SelectionMode::DEFAULT:   modifiers |= int(tools::ToolLoopModifiers::kReplaceSelection);  break;
+        case gen::SelectionMode::ADD:       modifiers |= int(tools::ToolLoopModifiers::kAddSelection);      break;
+        case gen::SelectionMode::SUBTRACT:  modifiers |= int(tools::ToolLoopModifiers::kSubtractSelection); break;
+        case gen::SelectionMode::INTERSECT: modifiers |= int(tools::ToolLoopModifiers::kIntersectSelection); break;
       }
 
       // For move tool
@@ -1586,7 +1603,7 @@ bool Editor::startStraightLineWithFreehandTool(const ui::MouseMessage* msg)
      tool->getInk(i)->isPaint() &&
      (getCustomizationDelegate()
       ->getPressedKeyAction(KeyContext::FreehandTool) & KeyAction::StraightLineFromLastPoint) == KeyAction::StraightLineFromLastPoint &&
-     document()->lastDrawingPoint() != app::Document::NoLastDrawingPoint());
+     document()->lastDrawingPoint() != Doc::NoLastDrawingPoint());
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1625,7 +1642,7 @@ bool Editor::onProcessMessage(Message* msg)
 
     case kMouseLeaveMessage:
       m_brushPreview.hide();
-      StatusBar::instance()->clearText();
+      StatusBar::instance()->showDefaultText();
       break;
 
     case kMouseDownMessage:
@@ -1754,12 +1771,6 @@ bool Editor::onProcessMessage(Message* msg)
       }
       break;
 
-    case kFocusLeaveMessage:
-      // As we use keys like Space-bar as modifier, we can clear the
-      // keyboard buffer when we lost the focus.
-      she::instance()->clearKeyboardBuffer();
-      break;
-
     case kMouseWheelMessage:
       if (m_sprite && hasMouse()) {
         EditorStatePtr holdState(m_state);
@@ -1825,7 +1836,7 @@ void Editor::onPaint(ui::PaintEvent& ev)
     try {
       // Lock the sprite to read/render it. We wait 1/4 secs in case
       // the background thread is making a backup.
-      DocumentReader documentReader(m_document, 250);
+      DocReader documentReader(m_document, 250);
 
       // Draw the sprite in the editor
       renderChrono.reset();
@@ -1862,7 +1873,7 @@ void Editor::onPaint(ui::PaintEvent& ev)
         m_antsTimer.stop();
       }
     }
-    catch (const LockedDocumentException&) {
+    catch (const LockedDocException&) {
       // The sprite is locked to be read, so we can draw an opaque
       // background only.
       g->fillRect(theme->colors.editorFace(), rc);
@@ -1881,7 +1892,10 @@ void Editor::onInvalidateRegion(const gfx::Region& region)
 void Editor::onActiveToolChange(tools::Tool* tool)
 {
   m_state->onActiveToolChange(this, tool);
-  updateStatusBar();
+  if (hasMouse()) {
+    updateStatusBar();
+    setCursor(ui::get_mouse_position());
+  }
 }
 
 void Editor::onFgColorChange()
@@ -1926,40 +1940,53 @@ void Editor::onShowExtrasChange()
   invalidate();
 }
 
-void Editor::onExposeSpritePixels(doc::DocumentEvent& ev)
+void Editor::onColorSpaceChanged(DocEvent& ev)
+{
+  // As the document has a new color space, we've to redraw the
+  // complete canvas again with the new color profile.
+  invalidate();
+}
+
+void Editor::onExposeSpritePixels(DocEvent& ev)
 {
   if (m_state && ev.sprite() == m_sprite)
     m_state->onExposeSpritePixels(ev.region());
 }
 
-void Editor::onSpritePixelRatioChanged(doc::DocumentEvent& ev)
+void Editor::onSpritePixelRatioChanged(DocEvent& ev)
 {
   m_proj.setPixelRatio(ev.sprite()->pixelRatio());
   invalidate();
 }
 
-void Editor::onBeforeRemoveLayer(DocumentEvent& ev)
+void Editor::onBeforeRemoveLayer(DocEvent& ev)
 {
   m_showGuidesThisCel = nullptr;
 }
 
-void Editor::onRemoveCel(DocumentEvent& ev)
+void Editor::onRemoveCel(DocEvent& ev)
 {
   m_showGuidesThisCel = nullptr;
 }
 
-void Editor::onAddFrameTag(DocumentEvent& ev)
+void Editor::onAddFrameTag(DocEvent& ev)
 {
   m_tagFocusBand = -1;
 }
 
-void Editor::onRemoveFrameTag(DocumentEvent& ev)
+void Editor::onRemoveFrameTag(DocEvent& ev)
 {
   m_tagFocusBand = -1;
+  if (m_state)
+    m_state->onRemoveFrameTag(this, ev.frameTag());
 }
 
 void Editor::setCursor(const gfx::Point& mouseScreenPos)
 {
+  Rect vp = View::getView(this)->viewportBounds();
+  if (!vp.contains(mouseScreenPos))
+    return;
+
   bool used = false;
   if (m_sprite)
     used = m_state->onSetCursor(this, mouseScreenPos);
@@ -2137,15 +2164,13 @@ void Editor::setZoomAndCenterInMouse(const Zoom& zoom,
     updateEditor();
     setEditorScroll(scrollPos);
   }
-
-  flushRedraw();
 }
 
 void Editor::pasteImage(const Image* image, const Mask* mask)
 {
   ASSERT(image);
 
-  base::UniquePtr<Mask> temp_mask;
+  std::unique_ptr<Mask> temp_mask;
   if (!mask) {
     gfx::Rect visibleBounds = getVisibleSpriteBounds();
     gfx::Rect imageBounds = image->bounds();
@@ -2236,6 +2261,14 @@ void Editor::startSelectionTransformation(const gfx::Point& move, double angle)
   else if (StandbyState* standby = dynamic_cast<StandbyState*>(m_state.get())) {
     standby->startSelectionTransformation(this, move, angle);
   }
+}
+
+void Editor::startFlipTransformation(doc::algorithm::FlipType flipType)
+{
+  if (MovingPixelsState* movingPixels = dynamic_cast<MovingPixelsState*>(m_state.get()))
+    movingPixels->flip(flipType);
+  else if (StandbyState* standby = dynamic_cast<StandbyState*>(m_state.get()))
+    standby->startFlipTransformation(this, flipType);
 }
 
 void Editor::notifyScrollChanged()

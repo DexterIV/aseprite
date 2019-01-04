@@ -13,7 +13,7 @@
 #include "app/commands/filters/filter_manager_impl.h"
 #include "app/commands/filters/filter_window.h"
 #include "app/context.h"
-#include "app/document.h"
+#include "app/doc.h"
 #include "app/find_widget.h"
 #include "app/ini_file.h"
 #include "app/load_widget.h"
@@ -50,7 +50,7 @@ public:
     , m_widthEntry(m_controlsWidget->width())
     , m_heightEntry(m_controlsWidget->height())
   {
-    getContainer()->addChild(m_controlsWidget);
+    getContainer()->addChild(m_controlsWidget.get());
 
     m_widthEntry->setTextf("%d", m_filter.getWidth());
     m_heightEntry->setTextf("%d", m_filter.getHeight());
@@ -78,7 +78,7 @@ private:
   }
 
   MedianFilter& m_filter;
-  base::UniquePtr<gen::Despeckle> m_controlsWidget;
+  std::unique_ptr<gen::Despeckle> m_controlsWidget;
   ExprEntry* m_widthEntry;
   ExprEntry* m_heightEntry;
 };

@@ -35,7 +35,6 @@
 #include "app/util/clipboard.h"
 #include "base/bind.h"
 #include "base/pi.h"
-#include "base/unique_ptr.h"
 #include "doc/algorithm/flip_image.h"
 #include "doc/mask.h"
 #include "doc/sprite.h"
@@ -134,6 +133,11 @@ void MovingPixelsState::rotate(double angle)
   m_pixelsMovement->rotate(angle);
 }
 
+void MovingPixelsState::flip(doc::algorithm::FlipType flipType)
+{
+  m_pixelsMovement->flipImage(flipType);
+}
+
 void MovingPixelsState::onEnterState(Editor* editor)
 {
   StandbyState::onEnterState(editor);
@@ -159,7 +163,7 @@ EditorState::LeaveAction MovingPixelsState::onLeaveState(Editor* editor, EditorS
       try {
         m_pixelsMovement->dropImage();
       }
-      catch (const LockedDocumentException& ex) {
+      catch (const LockedDocException& ex) {
         // This is one of the worst possible scenarios. We want to
         // drop pixels because we're leaving this state (e.g. the user
         // changed the current frame/layer, so we came from
@@ -232,7 +236,7 @@ bool MovingPixelsState::onMouseDown(Editor* editor, MouseMessage* msg)
   // with a couple of Editors, in one is moving pixels and the other
   // one not.
   UIContext* ctx = UIContext::instance();
-  ctx->setActiveView(editor->getDocumentView());
+  ctx->setActiveView(editor->getDocView());
 
   ContextBar* contextBar = App::instance()->contextBar();
   contextBar->updateForMovingPixels();
@@ -250,7 +254,7 @@ bool MovingPixelsState::onMouseDown(Editor* editor, MouseMessage* msg)
   }
 
   Decorator* decorator = static_cast<Decorator*>(editor->decorator());
-  Document* document = editor->document();
+  Doc* document = editor->document();
 
   // Transform selected pixels
   if (document->isMaskVisible() &&
@@ -513,9 +517,9 @@ void MovingPixelsState::onBeforeCommandExecution(CommandExecutionEvent& ev)
            command->id() == CommandId::Clear()) {
     // Copy the floating image to the clipboard on Cut/Copy.
     if (command->id() != CommandId::Clear()) {
-      Document* document = m_editor->document();
-      base::UniquePtr<Image> floatingImage;
-      base::UniquePtr<Mask> floatingMask;
+      Doc* document = m_editor->document();
+      std::unique_ptr<Image> floatingImage;
+      std::unique_ptr<Mask> floatingMask;
       m_pixelsMovement->getDraggedImageCopy(floatingImage, floatingMask);
 
       clipboard::copy_image(floatingImage.get(),
@@ -641,7 +645,7 @@ void MovingPixelsState::setTransparentColor(bool opaque, const app::Color& color
     m_pixelsMovement->setMaskColor(
       opaque, color_utils::color_for_target_mask(color, ColorTarget(layer)));
   }
-  catch (const LockedDocumentException& ex) {
+  catch (const LockedDocException& ex) {
     Console::showException(ex);
   }
 }
@@ -667,7 +671,7 @@ Transformation MovingPixelsState::getTransformation(Editor* editor)
 
 bool MovingPixelsState::isActiveDocument() const
 {
-  Document* doc = UIContext::instance()->activeDocument();
+  Doc* doc = UIContext::instance()->activeDocument();
   return (m_editor->document() == doc);
 }
 

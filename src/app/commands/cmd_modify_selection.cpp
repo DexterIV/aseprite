@@ -12,11 +12,11 @@
 #include "app/commands/command.h"
 #include "app/commands/params.h"
 #include "app/context_access.h"
-#include "app/document.h"
+#include "app/doc.h"
 #include "app/i18n/strings.h"
 #include "app/modules/gui.h"
 #include "app/pref/preferences.h"
-#include "app/transaction.h"
+#include "app/tx.h"
 #include "base/convert_to.h"
 #include "doc/algorithm/modify_selection.h"
 #include "doc/brush_type.h"
@@ -125,24 +125,24 @@ void ModifySelectionCommand::onExecute(Context* context)
 
   // Lock sprite
   ContextWriter writer(context);
-  Document* document(writer.document());
+  Doc* document(writer.document());
   Sprite* sprite(writer.sprite());
 
-  base::UniquePtr<Mask> mask(new Mask);
+  std::unique_ptr<Mask> mask(new Mask);
   {
     mask->reserve(sprite->bounds());
     mask->freeze();
     doc::algorithm::modify_selection(
-       m_modifier, document->mask(), mask, quantity, brush);
+       m_modifier, document->mask(), mask.get(), quantity, brush);
     mask->unfreeze();
   }
 
   // Set the new mask
-  Transaction transaction(writer.context(),
-                          friendlyName(),
-                          DoesntModifyDocument);
-  transaction.execute(new cmd::SetMask(document, mask));
-  transaction.commit();
+  Tx tx(writer.context(),
+        friendlyName(),
+        DoesntModifyDocument);
+  tx(new cmd::SetMask(document, mask.get()));
+  tx.commit();
 
   document->generateMaskBoundaries();
   update_screen_for_document(document);

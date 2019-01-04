@@ -16,8 +16,8 @@
 #include "app/commands/params.h"
 #include "app/console.h"
 #include "app/context_access.h"
-#include "app/document.h"
-#include "app/document_undo.h"
+#include "app/doc.h"
+#include "app/doc_undo.h"
 #include "app/file/file.h"
 #include "app/file/gif_format.h"
 #include "app/file/png_format.h"
@@ -37,7 +37,6 @@
 #include "base/fs.h"
 #include "base/scoped_value.h"
 #include "base/thread.h"
-#include "base/unique_ptr.h"
 #include "doc/frame_tag.h"
 #include "doc/sprite.h"
 #include "fmt/format.h"
@@ -89,6 +88,8 @@ private:
 SaveFileBaseCommand::SaveFileBaseCommand(const char* id, CommandFlags flags)
   : Command(id, flags)
 {
+  m_useUI = true;
+  m_ignoreEmpty = false;
 }
 
 void SaveFileBaseCommand::onLoadParams(const Params& params)
@@ -110,6 +111,12 @@ void SaveFileBaseCommand::onLoadParams(const Params& params)
     m_selFrames.clear();
     m_adjustFramesByFrameTag = false;
   }
+
+  std::string useUI = params.get("useUI");
+  m_useUI = (useUI.empty() || (useUI == "true"));
+
+  std::string ignoreEmpty = params.get("ignoreEmpty");
+  m_ignoreEmpty = (ignoreEmpty == "true");
 }
 
 // Returns true if there is a current sprite to save.
@@ -127,7 +134,7 @@ std::string SaveFileBaseCommand::saveAsDialog(
   const bool saveInBackground,
   const std::string& forbiddenFilename)
 {
-  Document* document = context->activeDocument();
+  Doc* document = context->activeDocument();
   std::string filename;
 
   if (!m_filename.empty()) {
@@ -140,7 +147,8 @@ std::string SaveFileBaseCommand::saveAsDialog(
 #ifdef ENABLE_UI
   again:;
     base::paths newfilename;
-    if (!app::show_file_selector(
+    if (!m_useUI ||
+        !app::show_file_selector(
           dlgTitle, filename, exts,
           FileSelectorType::Save,
           newfilename))
@@ -167,7 +175,7 @@ std::string SaveFileBaseCommand::saveAsDialog(
 
 void SaveFileBaseCommand::saveDocumentInBackground(
   const Context* context,
-  app::Document* document,
+  Doc* document,
   const std::string& filename,
   const bool markAsSaved)
 {
@@ -185,16 +193,17 @@ void SaveFileBaseCommand::saveDocumentInBackground(
   FileOpROI roi(document, m_slice, m_frameTag,
                 m_selFrames, m_adjustFramesByFrameTag);
 
-  base::UniquePtr<FileOp> fop(
+  std::unique_ptr<FileOp> fop(
     FileOp::createSaveDocumentOperation(
       context,
       roi,
       filename,
-      m_filenameFormat));
+      m_filenameFormat,
+      m_ignoreEmpty));
   if (!fop)
     return;
 
-  SaveFileJob job(fop);
+  SaveFileJob job(fop.get());
   job.showProgressWindow();
 
   if (fop->hasError()) {
@@ -244,13 +253,13 @@ SaveFileCommand::SaveFileCommand()
 // [main thread]
 void SaveFileCommand::onExecute(Context* context)
 {
-  Document* document = context->activeDocument();
+  Doc* document = context->activeDocument();
 
   // If the document is associated to a file in the file-system, we can
   // save it directly without user interaction.
   if (document->isAssociatedToFile()) {
     const ContextReader reader(context);
-    const Document* documentReader = reader.document();
+    const Doc* documentReader = reader.document();
 
     saveDocumentInBackground(
       context, document,
@@ -281,7 +290,7 @@ SaveFileAsCommand::SaveFileAsCommand()
 
 void SaveFileAsCommand::onExecute(Context* context)
 {
-  Document* document = context->activeDocument();
+  Doc* document = context->activeDocument();
   saveAsDialog(context, "Save As",
                document->filename(), true);
 }
@@ -295,7 +304,7 @@ protected:
   void onExecute(Context* context) override;
 
 private:
-  void moveToUndoState(Document* doc,
+  void moveToUndoState(Doc* doc,
                        const undo::UndoState* state);
 };
 
@@ -306,7 +315,7 @@ SaveFileCopyAsCommand::SaveFileCopyAsCommand()
 
 void SaveFileCopyAsCommand::onExecute(Context* context)
 {
-  Document* doc = context->activeDocument();
+  Doc* doc = context->activeDocument();
   std::string outputFilename = m_filename;
   std::string layers = kAllLayers;
   std::string frames = kAllFrames;
@@ -317,7 +326,7 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
   bool isForTwitter = false;
 
 #if ENABLE_UI
-  if (context->isUIAvailable()) {
+  if (m_useUI && context->isUIAvailable()) {
     ExportFileWindow win(doc);
     bool askOverwrite = true;
 
@@ -441,11 +450,11 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
   }
 }
 
-void SaveFileCopyAsCommand::moveToUndoState(Document* doc,
+void SaveFileCopyAsCommand::moveToUndoState(Doc* doc,
                                             const undo::UndoState* state)
 {
   try {
-    DocumentWriter writer(doc, 100);
+    DocWriter writer(doc, 100);
     doc->undoHistory()->moveToState(state);
     doc->generateMaskBoundaries();
     doc->notifyGeneralUpdate();

@@ -10,17 +10,16 @@
 
 #include "app/commands/command.h"
 #include "app/context_access.h"
-#include "app/document_api.h"
+#include "app/doc_api.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
-#include "app/transaction.h"
+#include "app/tx.h"
 #include "app/ui/button_set.h"
 #include "app/ui/color_bar.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/editor/select_box_state.h"
 #include "app/ui/skin/skin_theme.h"
 #include "base/bind.h"
-#include "base/unique_ptr.h"
 #include "doc/image.h"
 #include "doc/mask.h"
 #include "doc/sprite.h"
@@ -299,15 +298,15 @@ void CanvasSizeCommand::onExecute(Context* context)
 
   if (context->isUIAvailable()) {
     // load the window widget
-    base::UniquePtr<CanvasSizeWindow> window(new CanvasSizeWindow());
+    std::unique_ptr<CanvasSizeWindow> window(new CanvasSizeWindow());
 
     window->remapWindow();
     window->centerWindow();
 
-    load_window_pos(window, "CanvasSize");
+    load_window_pos(window.get(), "CanvasSize");
     window->setVisible(true);
     window->openWindowInForeground();
-    save_window_pos(window, "CanvasSize");
+    save_window_pos(window.get(), "CanvasSize");
 
     if (!window->pressedOk())
       return;
@@ -330,16 +329,16 @@ void CanvasSizeCommand::onExecute(Context* context)
 
   {
     ContextWriter writer(reader);
-    Document* document = writer.document();
+    Doc* document = writer.document();
     Sprite* sprite = writer.sprite();
-    Transaction transaction(writer.context(), "Canvas Size");
-    DocumentApi api = document->getApi(transaction);
+    Tx tx(writer.context(), "Canvas Size");
+    DocApi api = document->getApi(tx);
 
     api.cropSprite(sprite,
                    gfx::Rect(x1, y1,
                              MID(1, x2-x1, DOC_SPRITE_MAX_WIDTH),
                              MID(1, y2-y1, DOC_SPRITE_MAX_HEIGHT)));
-    transaction.commit();
+    tx.commit();
 
     document->generateMaskBoundaries();
     update_screen_for_document(document);
